@@ -3,7 +3,7 @@ lua-resty-phpcache - 针对openresty + php 组合可以有效的防止缓存失�
 利用 rewrite 执行阶段控制请求是否缓存
 
 # Synopsis
-```
+```nginx
     #设置变量用于lua
     set $ngx_exptime 1;
     set $redis_exptime 120;
