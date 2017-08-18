@@ -26,3 +26,23 @@ lua-resty-phpcache - 针对openresty + php 组合可以有效的防止缓存失�
         }
     }
 ```
+
+```lua
+-- main.lua
+
+local cache = require "resty.hmcache"
+require "resty.core.regex"
+
+if ngx.req.get_headers()["x-skip"] == "TRUE" then
+    ngx.req.clear_header("Accept-Encoding")
+    return
+end
+
+-- 可以配置缓存的 url 以及缓存时间 s
+local cList = {
+    ["^/$"] = 1,
+    ["^/(\\d+)$"] = 10,
+    ["^/(.*).json$"] = 10,
+    ["^/(.*).html$"] = 10,
+}
+```
