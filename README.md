@@ -18,7 +18,7 @@ lua-resty-phpcache - 针对openresty + php 组合可以有效的防止缓存失�
         try_files $uri $uri/ /index.php;
         location = /index.php {
 
-            rewrite_by_lua_file /usr/local/openresty/lua-resty-hmcache/resty/main.lua;
+            rewrite_by_lua_file /usr/local/openresty/lua-resty-phpcache/resty/main.lua;
 
             fastcgi_pass   127.0.0.1:9000;
             fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -28,21 +28,16 @@ lua-resty-phpcache - 针对openresty + php 组合可以有效的防止缓存失�
 ```
 
 ```lua
--- main.lua
+-- config.lua
 
-local cache = require "resty.hmcache"
-require "resty.core.regex"
-
-if ngx.req.get_headers()["x-skip"] == "TRUE" then
-    ngx.req.clear_header("Accept-Encoding")
-    return
-end
-
--- 可以配置缓存的 url 以及缓存时间 s
+-- 可以配置缓存的 url 以及缓存时间/秒
 local cList = {
-    ["^/$"] = 1,
+    ["^/$"] = 30,
     ["^/(\\d+)$"] = 10,
     ["^/(.*).json$"] = 10,
     ["^/(.*).html$"] = 10,
 }
+
+return cList
+
 ```

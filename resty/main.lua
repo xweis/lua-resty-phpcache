@@ -1,24 +1,20 @@
 -- main.lua
 
-local cache = require "resty.hmcache"
-require "resty.core.regex"
-
+-- 子请求
 if ngx.req.get_headers()["x-skip"] == "TRUE" then
     ngx.req.clear_header("Accept-Encoding")
     return
 end
 
-local cList = {
-    ["^/$"] = 1,
-    ["^/(\\d+)$"] = 10,
-    ["^/(.*).json$"] = 10,
-    ["^/(.*).html$"] = 10,
-}
-
+require "resty.core.regex"
+local cache = require "resty.hmcache"
+local cList = require "resty.config"
+local re_find = ngx.re.find
+local is_cache = nil
 local uri = ngx.re.sub(ngx.var.request_uri, "\\?.*", "")
-local is_cache = nil;
+
 for regex, exptime in pairs(cList) do
-    local from, to, err = ngx.re.find(uri, regex, "jo")
+    local from, to, err = re_find(uri, regex, "ijo")
     if err then
         ngx.log(ngx.ERR,err)
     end
