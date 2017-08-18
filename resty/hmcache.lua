@@ -123,7 +123,7 @@ function _M.get(self,key)
 
 
     -- Redis 没有数据,php后端获取
-    local val, status, fetch_redis_err = self.fetch_redis(self, key)
+    local val, redErr = self.fetch_redis(self, key)
     if not val then
         local ok, err = lock:unlock()
         if not ok then
@@ -131,10 +131,7 @@ function _M.get(self,key)
         end
 
         -- php redis 挂掉,且获取托底数据失败 | status 非200 
-
-        log(NOTICE, '(status:' .. status .. ") " .. fetch_redis_err)
-
-        return nil, status
+        return nil, redErr 
     end
 
 
