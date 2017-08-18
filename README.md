@@ -3,7 +3,6 @@ lua-resty-hmcache - 针对http get 请求缓存有效的防止雪崩效应
 利用 rewrite 执行阶段控制请求是否缓存
 
 # Synopsis
-'''
      #设置变量用于lua
      set $ngx_exptime 2;
      set $redis_exptime 120;
@@ -25,4 +24,3 @@ lua-resty-hmcache - 针对http get 请求缓存有效的防止雪崩效应
              include        fastcgi_params;
          }
      }
-'''
