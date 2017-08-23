@@ -14,7 +14,7 @@ local red = redis:new({host='127.0.0.1',auth=nil})
 local setmetatable = setmetatable
 --local key = ngx.var.escaped_key
 
-local _M = { _VERSION = '0.02' }
+local _M = { _VERSION = '0.03' }
 local mt = { __index = _M }
 
 local ERR = ngx.ERR
@@ -36,6 +36,7 @@ function _M.new()
     local X_Cache_hm = "miss" 
     local lockName = "lock"
     local bottomData_exptime = ngx.var.bottomData_exptime or 86400
+    local ngx_debug = ngx.var.ngx_debug or false
 
     local self = {
         ngxCache = ngxCache,
@@ -43,6 +44,7 @@ function _M.new()
         redis_exptime = redis_exptime,
         X_Cache_hm = X_Cache_hm, 
         lockName = lockName,
+        ngx_debug = ngx_debug,
     }
     return setmetatable(self, mt)
 end
@@ -136,14 +138,14 @@ function _M.get(self,key)
 
 
     -- 用新获取的值更新ngxcache缓存 
-    local ok, err = self.shmSet(self, key, val, self.ngx_exptime)
+    local ok, shmerr = self.shmSet(self, key, val, self.ngx_exptime)
     if not ok then
         local ok, err = lock:unlock()
         if not ok then
             return nil, "failed to unlock: " .. err
         end
 
-        return nil, "failed to update shm cache: " 
+        return nil, "failed to update shm cache: " .. shmerr 
     end
 
     local ok, err = lock:unlock()
@@ -170,41 +172,56 @@ function _M.fetch_redis(self, key)
     --ngx.req.clear_header("Accept-Encoding")
     value = ngx.location.capture(ngx.var.request_uri)
 
-    -- status 返回 200
-    if value and value.status == ngx.HTTP_OK then
+    if value then 
+        -- status  200
+        local httpStatus = tonumber(value.status)
+        if httpStatus == ngx.HTTP_OK then
 
-        --清楚 set-cookie
-        local removeKey = {}
-        for k,v in pairs(value.header) do
-            if ngx.re.find(k, "set-cookie", "ijo") then
-                table.insert(removeKey,k)
+            --清除 set-cookie
+            local removeKey = {}
+            for k,v in pairs(value.header) do
+                if ngx.re.find(k, "set-cookie", "ijo") then
+                    table.insert(removeKey,k)
+                end
             end
-        end
-        for k,v in pairs(removeKey) do
-            if v then
-                value.header[v] = nil
+            for k,v in pairs(removeKey) do
+                if v then
+                    value.header[v] = nil
+                end
             end
+
+            value = cjson.encode(value) 
+            --set redis
+            local ok, err = red:set(key, value)
+            if not ok then
+                return nil, "failed Redis set" .. err
+            end
+            red:expire(key,self.redis_exptime)
+
+            --set redis 托底数据
+            local ok, err = red:set(key .. "_bottomData", value)
+            if not ok then
+                return nil, "failed Redis set bottomData" .. err
+            end
+            red:expire(key .. "_bottomData", self.bottomData_exptime)
+
+            self.log(self, NOTICE, "Redis Cache Hit " .. ngx.var.host .. ngx.var.request_uri)
+
+            return value 
         end
 
-        value = cjson.encode(value) 
-        --set redis
-        local ok, err = red:set(key, value)
-        if not ok then
-            return nil, "failed Redis set" .. err
+        -- status 301 302
+        local statusList = {
+            [300] = 1,
+            [301] = 1,
+            [302] = 1,
+        }
+        if statusList[httpStatus] then
+            return cjson.encode(value)
         end
-        red:expire(key,self.redis_exptime)
-
-        --set redis 托底数据
-        local ok, err = red:set(key .. "_bottomData", value)
-        if not ok then
-            return nil, "failed Redis set bottomData" .. err
-        end
-        red:expire(key .. "_bottomData", self.bottomData_exptime)
-
-        log(NOTICE, "Redis Cache Hit " .. ngx.var.host .. ngx.var.request_uri)
-
-        return value 
     end
+
+
 
     -- 读取 php 失败 获取托底数据
     local value, err = red:get(key .. "_bottomData")
@@ -212,7 +229,7 @@ function _M.fetch_redis(self, key)
         return nil, "failed Redis get bottomData"
     end
 
-    log(NOTICE, "Get bottomData succ" .. ngx.var.host .. ngx.var.request_uri)
+    self.log(self, NOTICE, "Get bottomData succ" .. ngx.var.host .. ngx.var.request_uri)
     self.X_Cache_hm = "His bot"
     return value
 end
@@ -228,6 +245,15 @@ function _M.header(self, val)
     ngx.header["X-Cache-hm"] = self.X_Cache_hm
 
     return value.body
+end
+
+
+-- log
+function _M.log(self,loglevel,msg)
+    if self.ngx_debug then
+        log(loglevel,msg)
+    end
+    return 
 end
 
 return _M
