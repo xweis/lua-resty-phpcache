@@ -29,7 +29,7 @@ function _M.new()
     end
 
     -- nginx 缓存时间
-    local ngx_exptime = ngx.var.ngx_exptime or 1
+    local ngx_exptime = 1
     -- redis 缓存时间
     local redis_exptime = ngx.var.redis_exptime or 10
     -- header 标记缓存信息
@@ -44,6 +44,7 @@ function _M.new()
         redis_exptime = redis_exptime,
         X_Cache_hm = X_Cache_hm, 
         lockName = lockName,
+        bottomData_exptime = bottomData_exptime,
         ngx_debug = ngx_debug,
     }
     return setmetatable(self, mt)
@@ -172,9 +173,10 @@ function _M.fetch_redis(self, key)
     --ngx.req.clear_header("Accept-Encoding")
     value = ngx.location.capture(ngx.var.request_uri)
 
+    local httpStatus = nil
     if value then 
         -- status  200
-        local httpStatus = tonumber(value.status)
+        httpStatus = tonumber(value.status)
         if httpStatus == ngx.HTTP_OK then
 
             --清除 set-cookie
@@ -210,20 +212,19 @@ function _M.fetch_redis(self, key)
             return value 
         end
 
-        -- status 301 302
+        -- status 30x 40x
         local statusList = {
-            [300] = 1,
             [301] = 1,
             [302] = 1,
+            [404] = 1,
         }
         if statusList[httpStatus] then
-            return cjson.encode(value)
+            return cjson.encode(value) 
         end
     end
 
 
-
-    -- 读取 php 失败 获取托底数据
+    -- status 500 获取托底数据
     local value, err = red:get(key .. "_bottomData")
     if not value then
         return nil, "failed Redis get bottomData"
@@ -244,7 +245,7 @@ function _M.header(self, val)
     end
     ngx.header["X-Cache-hm"] = self.X_Cache_hm
 
-    return value.body
+    return value
 end
 
 
