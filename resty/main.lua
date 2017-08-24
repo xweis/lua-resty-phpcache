@@ -7,7 +7,7 @@ if ngx.req.get_headers()["x-skip"] == "TRUE" then
 end
 
 require "resty.core.regex"
-local cache = require "resty.hmcache"
+local hmcache = require "resty.hmcache"
 local cList = require "resty.config"
 local re_find = ngx.re.find
 local is_cache = nil
@@ -20,6 +20,7 @@ for regex, exptime in pairs(cList) do
         ngx.log(ngx.ERR,err)
     end
 
+    -- 缓存
     if from then
         is_cache = 1
         ngx.var.redis_exptime = exptime
@@ -27,12 +28,15 @@ for regex, exptime in pairs(cList) do
     end
 end
 
+-- 不缓存
 if not is_cache then
     return
 end
 
+-- 只缓存 get 请求
 if ngx.var.request_method == "GET" then
 
+    -- 缓存 key
     local cache_keys = {
         ngx.req.get_method(),
         ngx.var.host,
@@ -41,15 +45,18 @@ if ngx.var.request_method == "GET" then
     local cache_key = string.lower(table.concat(cache_keys,"|"))
     local key = 'ngx_cache_' .. ngx.md5(cache_key)
 
-    cache = cache:new()
+    local cache = hmcache:new()
     local content, err = cache:get(key)
 
     if not content then 
-        ngx.log(ngx.ERR, err)
+        if err then
+            ngx.log(ngx.ERR, err)
+        end
         return 
     end
 
-    ngx.print(content)
-    return ngx.exit(ngx.HTTP_OK)
+    ngx.status = content.status
+    ngx.print(content.body)
+    return ngx.exit(content.status)
 end
 return
