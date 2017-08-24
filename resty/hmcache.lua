@@ -10,11 +10,11 @@ local cjson = require "cjson"
 --local http = require "resty.http"
 --local ngx_re = require "ngx.re"
 --local red = redis:new({host='10.0.0.17',auth='HCeNPa109XzzfqpC'})
-local red = redis:new({host='127.0.0.1',auth=nil})
+local red = redis:new({host='127.0.0.1', auth=nil, timeout=5})
 local setmetatable = setmetatable
 --local key = ngx.var.escaped_key
 
-local _M = { _VERSION = '0.03' }
+local _M = { _VERSION = '1.0' }
 local mt = { __index = _M }
 
 local ERR = ngx.ERR
