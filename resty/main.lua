@@ -8,10 +8,22 @@ end
 
 require "resty.core.regex"
 local hmcache = require "resty.hmcache"
-local cList = require "resty.config"
+
+-- 环境 ngx_env
+local ngx_env = ngx.var.ngx_env
+local cList = require "resty.config.prod.cache"
+if ngx_env == 'dev' then
+    cList = require "resty.config.dev.cache"
+end
+
+
+local host = ngx.var.host
+cList = cList[host] or {}
 local re_find = ngx.re.find
 local is_cache = nil
+
 local request_uri = ngx.var.request_uri
+local method = ngx.req.get_method()
 local uri = ngx.re.sub(request_uri, "\\?.*", "")
 
 for regex, exptime in pairs(cList) do
@@ -38,8 +50,8 @@ if ngx.var.request_method == "GET" then
 
     -- 缓存 key
     local cache_keys = {
-        ngx.req.get_method(),
-        ngx.var.host,
+        method,
+        host,
         request_uri,
     }
     local cache_key = string.lower(table.concat(cache_keys,"|"))

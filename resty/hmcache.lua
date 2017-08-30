@@ -7,14 +7,18 @@
 local redis = require "resty.redis_iresty" 
 local resty_lock = require "resty.lock"
 local cjson = require "cjson"
---local http = require "resty.http"
---local ngx_re = require "ngx.re"
---local red = redis:new({host='10.0.0.17',auth='HCeNPa109XzzfqpC'})
-local red = redis:new({host='127.0.0.1', auth=nil, timeout=5})
-local setmetatable = setmetatable
---local key = ngx.var.escaped_key
 
-local _M = { _VERSION = '1.0' }
+-- 环境
+local ngx_env = ngx.var.ngx_env
+local redis_config = require "resty.config.prod.redis"
+if ngx_env == 'dev' then
+    redis_config = require "resty.config.dev.redis"
+end
+
+local red = redis:new(redis_config)
+local setmetatable = setmetatable
+
+local _M = { _VERSION = '1.1' }
 local mt = { __index = _M }
 
 local ERR = ngx.ERR
@@ -31,12 +35,14 @@ function _M.new()
     -- nginx 缓存时间
     local ngx_exptime = 1
     -- redis 缓存时间
-    local redis_exptime = ngx.var.redis_exptime or 10
+    local redis_exptime = tonumber(ngx.var.redis_exptime) or 10
     -- header 标记缓存信息
     local X_Cache_hm = "miss" 
     local lockName = "lock"
-    local bottomData_exptime = ngx.var.bottomData_exptime or 86400
-    local ngx_debug = ngx.var.ngx_debug or false
+
+    -- bottomData_exptime = -1 则不使用托底数据
+    local bottomData_exptime = tonumber(ngx.var.bottomData_exptime) or 86400
+    local ngx_debug = tostring(ngx.var.ngx_debug) or 'false'
 
     local self = {
         ngxCache = ngxCache,
@@ -102,11 +108,14 @@ function _M.get(self,key)
     local elapsed, err = lock:lock(key)
     -- 没有获取锁
     if not elapsed then
-        local val, err = red:get(key .. "_bottomData")
-        if not val then
-            return nil, "failed Redis get bottomData"
+        if self.bottomData_exptime > 0 then
+            local val, berr = red:get(key .. "_bottomData")
+            if not val then
+                return nil, "failed Redis get bottomData"
+            end
+            return self.header(self,val)
         end
-        return self.header(self,val)
+        return nil, "failed to acquire the lock :" .. err 
     end
 
 
@@ -194,18 +203,19 @@ function _M.fetch_redis(self, key)
 
             value = cjson.encode(value) 
             --set redis
-            local ok, err = red:set(key, value)
+            local ok, err = red:setex(key, self.redis_exptime, value)
             if not ok then
-                return nil, "failed Redis set" .. err
+                return nil, "failed Redis set " .. err
             end
-            red:expire(key,self.redis_exptime)
 
             --set redis 托底数据
-            local ok, err = red:set(key .. "_bottomData", value)
-            if not ok then
-                return nil, "failed Redis set bottomData" .. err
+
+            if self.bottomData_exptime > 0 then
+                local ok, err = red:setex(key .. "_bottomData", self.bottomData_exptime, value)
+                if not ok then
+                    return nil, "failed Redis set bottomData " .. err
+                end
             end
-            red:expire(key .. "_bottomData", self.bottomData_exptime)
 
             self.log(self, NOTICE, "Redis Cache Hit " .. ngx.var.host .. ngx.var.request_uri)
 
@@ -224,15 +234,19 @@ function _M.fetch_redis(self, key)
     end
 
 
-    -- status 500 获取托底数据
-    local value, err = red:get(key .. "_bottomData")
-    if not value then
-        return nil, "failed Redis get bottomData"
+    if self.bottomData_exptime > 0 then
+        -- status 500 获取托底数据
+        local value, err = red:get(key .. "_bottomData")
+        if not value then
+            return nil, "failed Redis get bottomData"
+        end
+        self.log(self, NOTICE, "Get bottomData succ " .. ngx.var.host .. ngx.var.request_uri)
+        self.X_Cache_hm = "His bot"
+        return value
     end
 
-    self.log(self, NOTICE, "Get bottomData succ" .. ngx.var.host .. ngx.var.request_uri)
-    self.X_Cache_hm = "His bot"
-    return value
+    return nil, 'Get data failed status :(' .. httpStatus .. ')'
+
 end
 
 
@@ -251,9 +265,10 @@ end
 
 -- log
 function _M.log(self,loglevel,msg)
-    if self.ngx_debug then
-        log(loglevel,msg)
+    if self.ngx_debug == 'false' and loglevel == NOTICE then
+        return
     end
+    log(loglevel,msg)
     return 
 end
 
